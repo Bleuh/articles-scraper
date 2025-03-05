@@ -1,36 +1,59 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+} from '@nestjs/common';
 import { ArticlesService } from './articles.service';
 
 @Controller('articles')
 export class ArticlesController {
-  constructor(private readonly articlesService: ArticlesService) {}
+  constructor(private readonly articlesService: ArticlesService) { }
 
   @Get()
-  findAll() {
-    return this.articlesService.findAll();
+  findAll(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+    @Query('dateOrder') dateOrder: 'ASC' | 'DESC' = 'DESC',
+    @Query('source') source?: string,
+    @Query('title') title?: string,
+  ) {
+    return this.articlesService.findAll({
+      page: Number(page),
+      limit: Number(limit),
+      dateOrder,
+      source,
+      title,
+    });
   }
 
-  @Get("/scrape{/:number}")
-  scrapeArticles(@Param('number') number?: number) {
+  @Get('/scrape{/:number}')
+  async scrapeArticles(@Param('number') number?: number) {
     // Peut-être ajouté à la query / environnement dans le futur.
     // Pour l'instant j'ajoute uniquement le nombre d'articles à scraper.
-    return this.articlesService.scrapeArticles({
+    const articles = await this.articlesService.scrapeArticles({
       url: 'https://news.ycombinator.com/',
       container: '.submission',
       querySelector: {
         title: '.title span.titleline a',
         link: {
           querySelector: '.title .titleline a',
-          attr: 'href'
+          attr: 'href',
         },
         source: '.title .titleline .sitebit a .sitestr',
         publishDate: {
           querySelector: '.subtext .age',
-          attr: 'title'
-        }
+          attr: 'title',
+        },
       },
       includeQuerySelectorOnNextSibling: true,
-      numberOfArticles: number ?? 10
+      numberOfArticles: number ?? 10,
     });
+
+    return this.articlesService.saveArticles(articles);
   }
 }
