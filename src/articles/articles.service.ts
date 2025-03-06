@@ -8,20 +8,28 @@ import { FindAllDto } from './dto/find-all.dto';
 
 @Injectable()
 export class ArticlesService {
-  constructor(@InjectRepository(Article) private articleRepository: Repository<Article>) {}
+  constructor(@InjectRepository(Article) private articleRepository: Repository<Article>) { }
 
   async findAll(findAllDto: FindAllDto) {
 
-    const where: FindOptionsWhere<Article> = {};
-    if (findAllDto.source) where.source = findAllDto.source;
-    if (findAllDto.title) where.title = Like(`%${findAllDto.title}%`);
+    const query = this.articleRepository
+      .createQueryBuilder("article")
+      .where("1=1");
 
-    const [articles, total] = await this.articleRepository.findAndCount({
-      take: findAllDto.limit,
-      skip: (findAllDto.page - 1) * findAllDto.limit,
-      order: { publishDate: findAllDto.dateOrder },
-      where,
-    });
+    if (findAllDto.source) {
+      query.andWhere("article.source = :source", { source: findAllDto.source });
+    }
+
+    if (findAllDto.title) {
+      query.andWhere("MATCH(article.title) AGAINST (:title IN NATURAL LANGUAGE MODE)", { title: findAllDto.title });
+    }
+
+    query
+      .orderBy("article.publishDate", findAllDto.dateOrder)
+      .skip((findAllDto.page - 1) * findAllDto.limit)
+      .take(findAllDto.limit);
+
+    const [articles, total] = await query.getManyAndCount();
 
     return {
       total,
