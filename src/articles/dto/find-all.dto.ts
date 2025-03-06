@@ -4,4 +4,5 @@ export class FindAllDto {
   dateOrder: 'ASC' | 'DESC' = 'DESC';
   source?: string;
   title?: string;
+  searchLike?: boolean;
 }

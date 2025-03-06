@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { ScrapeArticleDto, QuerySelectorAttr } from './dto/scrape-articles.dto';
 import * as cheerio from 'cheerio';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -6,11 +6,28 @@ import { FindOperator, FindOptionsWhere, Like, Repository } from 'typeorm';
 import { Article } from './entities/article.entity';
 import { FindAllDto } from './dto/find-all.dto';
 
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
+
 @Injectable()
 export class ArticlesService {
-  constructor(@InjectRepository(Article) private articleRepository: Repository<Article>) { }
+  constructor(
+    @InjectRepository(Article) private articleRepository: Repository<Article>,
+    @Inject(CACHE_MANAGER) private cacheService: Cache,
+  ) { }
 
   async findAll(findAllDto: FindAllDto) {
+
+    const clone: FindAllDto = { ...findAllDto };
+    delete findAllDto.searchLike;
+    const cacheKey = JSON.stringify(findAllDto);
+
+    const { searchLike } = clone;
+
+    const cachedArticles = await this.cacheService.get(cacheKey);
+    if (cachedArticles) {
+      return cachedArticles;
+    }
 
     const query = this.articleRepository
       .createQueryBuilder("article")
@@ -20,8 +37,10 @@ export class ArticlesService {
       query.andWhere("article.source = :source", { source: findAllDto.source });
     }
 
-    if (findAllDto.title) {
+    if (findAllDto.title && !searchLike) {
       query.andWhere("MATCH(article.title) AGAINST (:title IN NATURAL LANGUAGE MODE)", { title: findAllDto.title });
+    } else if (findAllDto.title && searchLike) {
+      query.andWhere("article.title LIKE :title", { title: `%${findAllDto.title}%` });
     }
 
     query
@@ -31,11 +50,25 @@ export class ArticlesService {
 
     const [articles, total] = await query.getManyAndCount();
 
+    if (!searchLike && total === 0) {
+      return this.findAll({ ...findAllDto, searchLike: true });
+    }
+
+    this.cacheService.set(cacheKey, {
+      total,
+      page: findAllDto.page,
+      limit: findAllDto.limit,
+      totalPages: Math.ceil(total / findAllDto.limit),
+      cached: true,
+      articles,
+    });
+
     return {
       total,
       page: findAllDto.page,
       limit: findAllDto.limit,
       totalPages: Math.ceil(total / findAllDto.limit),
+      cached: false,
       articles,
     };
   }
